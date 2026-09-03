@@ -7,19 +7,24 @@ import ai.timefold.solver.core.api.score.stream.ConstraintProvider;
 import ai.timefold.solver.core.api.score.stream.Joiners;
 import com.graduation.exam_solver.domain.Exam;
 
+import java.time.LocalDate;
+
 public class ExamConstraintProvider implements ConstraintProvider {
 
     @Override
     public Constraint[] defineConstraints(ConstraintFactory factory) {
         return new Constraint[]{
-            hardConflict(factory),    
-            mediumConflict(factory),  
-            softConflict(factory),    
-            preferredDaysGap(factory) 
+            hardConflict(factory),
+            mediumConflict(factory),
+            softConflict(factory),
+            preferredDaysGap(factory),
+            
+            fixedSubjectConstraint(factory),      // HARD: تثبيت المواد الثابتة
+            sameGroupConstraint(factory)          // HARD: مواد نفس الغروب بنفس الوقت
         };
     }
 
-    // HARD
+
     private Constraint hardConflict(ConstraintFactory factory) {
         return factory.forEachUniquePair(Exam.class,
                 Joiners.equal(exam -> exam.getExamSlot().getDate()))
@@ -28,7 +33,6 @@ public class ExamConstraintProvider implements ConstraintProvider {
             .asConstraint("Hard conflict - same day");
     }
 
-    // MEDIUM
     private Constraint mediumConflict(ConstraintFactory factory) {
         return factory.forEachUniquePair(Exam.class,
                 Joiners.equal(exam -> exam.getExamSlot().getDate()))
@@ -37,7 +41,6 @@ public class ExamConstraintProvider implements ConstraintProvider {
             .asConstraint("Medium conflict - same day");
     }
 
-    // SOFT
     private Constraint softConflict(ConstraintFactory factory) {
         return factory.forEachUniquePair(Exam.class,
                 Joiners.equal(exam -> exam.getExamSlot().getDate()))
@@ -46,7 +49,6 @@ public class ExamConstraintProvider implements ConstraintProvider {
             .asConstraint("Soft conflict - same day");
     }
 
-    // SOFT// يفضل ان يكون بين كل امتحان و امتحان اخر مسافة ايام معينة
     private Constraint preferredDaysGap(ConstraintFactory factory) {
         return factory.forEachUniquePair(Exam.class)
             .filter((a, b) -> {
@@ -62,5 +64,33 @@ public class ExamConstraintProvider implements ConstraintProvider {
             })
             .penalize(HardMediumSoftScore.ONE_SOFT)
             .asConstraint("Preferred days gap not respected");
+    }
+
+    private Constraint fixedSubjectConstraint(ConstraintFactory factory) {
+        return factory.forEach(Exam.class)
+            .filter(Exam::isFixed)
+            .filter(exam -> {
+                if (exam.getExamSlot() == null) return false;
+                String slotDate = exam.getExamSlot().getDate().toString();
+                int slotIndex = exam.getExamSlot().getSlotIndex();
+                return !slotDate.equals(exam.getFixedDate()) || 
+                       slotIndex != exam.getFixedTimeslot();
+            })
+            .penalize(HardMediumSoftScore.ONE_HARD)
+            .asConstraint("Fixed subject must be on specified date and timeslot");
+    }
+
+   
+    private Constraint sameGroupConstraint(ConstraintFactory factory) {
+        return factory.forEachUniquePair(Exam.class,
+                Joiners.equal(Exam::getGroupId))
+            .filter((a, b) -> a.getGroupId() != null && !a.getGroupId().isEmpty())
+            .filter((a, b) -> {
+                if (a.getExamSlot() == null || b.getExamSlot() == null) return false;
+                return !a.getExamSlot().getDate().equals(b.getExamSlot().getDate()) ||
+                       a.getExamSlot().getSlotIndex() != b.getExamSlot().getSlotIndex();
+            })
+            .penalize(HardMediumSoftScore.ONE_HARD)
+            .asConstraint("Same group subjects must be on same date and timeslot");
     }
 }
