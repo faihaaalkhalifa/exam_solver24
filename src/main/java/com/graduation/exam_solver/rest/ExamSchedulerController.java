@@ -36,7 +36,6 @@ public class ExamSchedulerController {
             excludedDates.add(LocalDate.parse(d.substring(0, 10)));
         }
 
-    
         List<ExamSlot> slots = new ArrayList<>();
         LocalDate current = startDate;
         int slotId = 1;
@@ -52,7 +51,6 @@ public class ExamSchedulerController {
             slotId++;
         }
 
-    
         List<Map<String, Object>> examsRaw = (List<Map<String, Object>>) payload.get("exams");
         List<Exam> exams = new ArrayList<>();
 
@@ -76,7 +74,7 @@ public class ExamSchedulerController {
                 fixedTimeslot
             ));
         }
-    
+
         Map<String, ExamSlot> slotLookup = new HashMap<>();
         for (ExamSlot slot : slots) {
             String key = slot.getDate().toString() + "-" + slot.getSlotIndex();
@@ -101,12 +99,15 @@ public class ExamSchedulerController {
             }
         }
 
-        int slotCursor = 0; 
+        
+        Map<Integer, LocalDate> lastUsedDateByYear = new HashMap<>();
+
+        int slotCursor = 0;
 
         for (Map.Entry<String, List<Exam>> entry : examsByGroup.entrySet()) {
             List<Exam> groupExams = entry.getValue();
+            int yearOrder = groupExams.get(0).getYearOrder();
 
-            
             ExamSlot chosenSlot = null;
             for (Exam e : groupExams) {
                 if (e.isPinned() && e.getExamSlot() != null) {
@@ -115,13 +116,39 @@ public class ExamSchedulerController {
                 }
             }
 
-        
             if (chosenSlot == null && !slots.isEmpty()) {
-                chosenSlot = slots.get(slotCursor % slots.size());
-                slotCursor++;
+                LocalDate lastUsedDate = lastUsedDateByYear.get(yearOrder);
+
+                int attempts = 0;
+                while (attempts < slots.size()) {
+                    ExamSlot candidate = slots.get(slotCursor % slots.size());
+                    slotCursor++;
+                    attempts++;
+
+                    boolean isValidDate = true;
+                    if (lastUsedDate != null) {
+                        long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(lastUsedDate, candidate.getDate());
+                        // يجب أن يكون الفارق على الأقل يومين بين الامتحانات
+                        if (daysBetween < 3) {
+                            isValidDate = false;
+                        }
+                    }
+
+                    if (isValidDate) {
+                        chosenSlot = candidate;
+                        break;
+                    }
+                }
+                if (chosenSlot == null) {
+                    chosenSlot = slots.get(slotCursor % slots.size());
+                    slotCursor++;
+                }
             }
 
             if (chosenSlot != null) {
+               
+                lastUsedDateByYear.put(yearOrder, chosenSlot.getDate());
+
                 for (Exam e : groupExams) {
                     e.setExamSlot(chosenSlot);
                     e.setPinned(true);
@@ -129,7 +156,6 @@ public class ExamSchedulerController {
             }
         }
 
-    
         ExamSchedule problem = new ExamSchedule(slots, exams);
         UUID jobId = UUID.randomUUID();
 

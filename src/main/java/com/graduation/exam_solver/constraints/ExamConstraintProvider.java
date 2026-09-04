@@ -7,8 +7,6 @@ import ai.timefold.solver.core.api.score.stream.ConstraintProvider;
 import ai.timefold.solver.core.api.score.stream.Joiners;
 import com.graduation.exam_solver.domain.Exam;
 
-import java.time.LocalDate;
-
 public class ExamConstraintProvider implements ConstraintProvider {
 
     @Override
@@ -18,12 +16,11 @@ public class ExamConstraintProvider implements ConstraintProvider {
             mediumConflict(factory),
             softConflict(factory),
             preferredDaysGap(factory),
-            
-            fixedSubjectConstraint(factory),      // HARD: تثبيت المواد الثابتة
-            sameGroupConstraint(factory)          // HARD: مواد نفس الغروب بنفس الوقت
+            fixedSubjectConstraint(factory),
+            sameGroupConstraint(factory),
+            differentGroupsSameYearConstraint(factory)
         };
     }
-
 
     private Constraint hardConflict(ConstraintFactory factory) {
         return factory.forEachUniquePair(Exam.class,
@@ -66,6 +63,11 @@ public class ExamConstraintProvider implements ConstraintProvider {
             .asConstraint("Preferred days gap not respected");
     }
 
+    
+
+    /**
+     * HARD Constraint:
+     */
     private Constraint fixedSubjectConstraint(ConstraintFactory factory) {
         return factory.forEach(Exam.class)
             .filter(Exam::isFixed)
@@ -73,14 +75,16 @@ public class ExamConstraintProvider implements ConstraintProvider {
                 if (exam.getExamSlot() == null) return false;
                 String slotDate = exam.getExamSlot().getDate().toString();
                 int slotIndex = exam.getExamSlot().getSlotIndex();
-                return !slotDate.equals(exam.getFixedDate()) || 
+                return !slotDate.equals(exam.getFixedDate()) ||
                        slotIndex != exam.getFixedTimeslot();
             })
             .penalize(HardMediumSoftScore.ONE_HARD)
             .asConstraint("Fixed subject must be on specified date and timeslot");
     }
 
-   
+    /**
+     * HARD Constraint: 
+     */
     private Constraint sameGroupConstraint(ConstraintFactory factory) {
         return factory.forEachUniquePair(Exam.class,
                 Joiners.equal(Exam::getGroupId))
@@ -92,5 +96,21 @@ public class ExamConstraintProvider implements ConstraintProvider {
             })
             .penalize(HardMediumSoftScore.ONE_HARD)
             .asConstraint("Same group subjects must be on same date and timeslot");
+    }
+
+     /**
+     * HARD Constraint: 
+     */
+    private Constraint differentGroupsSameYearConstraint(ConstraintFactory factory) {
+        return factory.forEachUniquePair(Exam.class,
+                Joiners.equal(exam -> exam.getExamSlot().getDate()))
+            .filter((a, b) ->
+                a.getGroupId() != null && !a.getGroupId().isEmpty() &&
+                b.getGroupId() != null && !b.getGroupId().isEmpty() &&
+                !a.getGroupId().equals(b.getGroupId()) &&
+                a.getYearOrder() == b.getYearOrder()
+            )
+            .penalize(HardMediumSoftScore.ONE_HARD)
+            .asConstraint("Different groups same year cannot share the same day");
     }
 }
